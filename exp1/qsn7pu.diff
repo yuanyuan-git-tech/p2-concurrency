@@ -1,0 +1,88 @@
+diff --git a/exp1/counter.c b/exp1/counter.c
+index 6b2ad85..417661a 100755
+--- a/exp1/counter.c
++++ b/exp1/counter.c
+@@ -21,6 +21,20 @@ int c_and_sFlag = 0;
+ 
+ pthread_mutex_t mutex;
+ // todo: define a spinlock variable 
++int spinLock = 0;
++
++void spinlock_init(int* lock) {
++    __atomic_store_n(lock, 0, __ATOMIC_SEQ_CST);
++}
++void spinlock_lock(int* lock) {
++    int expected = 0;
++    while (!__atomic_compare_exchange_n(lock, &expected, 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
++        expected = 0;
++    }
++}
++void spinlock_unlock(int* lock) {
++    __atomic_store_n(lock, 0, __ATOMIC_SEQ_CST);
++}
+ 
+ char const * getTestName() {
+     if(mutexFlag)
+@@ -57,17 +71,39 @@ void add_iterate(int val, int iterations) {
+         }
+         else if(spinLockFlag) {
+             // todo: lock the spinlock
++            /*
++            __atomic_test_and_set(&spinLock, __ATOMIC_SEQ_CST) atomically sets spinlock to a non-zero value and 
++            returns its previous value. 
++            If the returned value is 0, it means the lock was acquired successfully. 
++            If the lock is already held (spinlock is non-zero), 
++            the thread enters a busy-wait state, continuously checking until the lock becomes available.
++            */
++            // while (__atomic_test_and_set(&spinLock, __ATOMIC_SEQ_CST)) {
++            // }
++            spinlock_lock(&spinLock);
+             add(&the_counter, val);
+             // todo: unlock the spinlock
++            /*
++            __atomic_clear(&spinlock, __ATOMIC_SEQ_CST) is used to release the lock by setting spinlock back to 0, 
++            making it available for other threads to acquire.
++            */
++            //__atomic_clear(&spinLock, __ATOMIC_SEQ_CST);
++            spinlock_unlock(&spinLock);
+         }
+         else if(c_and_sFlag) {
+             long long oldVal, newVal;
+ 			
+-	    /* todo: change the following, so that it updates @the_counter atomically using CAS */
+-	    oldVal = the_counter;
+-	    newVal = oldVal + val;
+-	    the_counter = newVal; 
+-	    /* --- */
++	        /* todo: change the following, so that it updates @the_counter atomically using CAS */
++            
++            /*
++            __atomic_compare_exchange_n: This function will atomically compare the counter with the expected old value
++            and, if they match, swap it with the new value. 
++            If not, it will update the old value with the current value of the counter. 
++            */
++           do {
++            oldVal = the_counter;
++            newVal = oldVal + val;
++           } while (!__atomic_compare_exchange_n(&the_counter, &oldVal, newVal, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+         }
+         else
+             add(&the_counter, val);
+@@ -95,7 +131,8 @@ int main(int argc, char** argv) {
+         {"sync", 1, 0, 's'},
+         {0, 0, 0, 0}
+     };
+-
++    // Check the size of long long type of integer
++    // printf("Size of long long: %zu bytes\n", sizeof(long long));
+     /* parse cmd args */
+     while((opt=getopt_long(argc, argv, "its", options, NULL)) != -1){
+         switch(opt){
+@@ -119,6 +156,7 @@ int main(int argc, char** argv) {
+                         break;
+                     case 's':
+                         spinLockFlag = 1;
++                        spinlock_init(&spinLock);
+                         break;
+                     case 'c':
+                         c_and_sFlag = 1;
